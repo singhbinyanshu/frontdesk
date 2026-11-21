@@ -1,123 +1,107 @@
 # Frontdesk: Business Rules (Source of Truth)
 
-> DRAFT. Rewrite every rule in your own words before you submit.
-> Status key: **Stated** = the story says it. **Decided** = the story is silent or vague, so I chose it (the reason is in DECISIONS.md).
-> If the code disagrees with this file, the code is wrong.
+I read the meeting notes with Meera and the three incident reports from Arvo Systems. I pulled out all the business rules and wrote them here in my own words.
+
+Rule Status:
+- **Stated:** Explicitly mentioned in Meera's meeting notes or the incident reports.
+- **Decided:** The notes were silent or ambiguous, so I made an engineering decision (explained in `decisions.md`).
 
 ---
 
-## 1. Working time (prefix T)
+## 1. Working Time (Prefix T)
 
-- **T1 (Stated):** The support team works Monday to Friday, 09:30 to 18:30. That is 9 working hours per day.
-- **T2 (Stated):** No work on festival holidays. Holidays are stored as editable data (a `holidays` table), never hard-coded. Seed a few sample dates.
-- **T3 (Stated):** Every deadline and every "how long has this taken" number is measured in **working minutes only**. Nights, weekends, and holidays count as zero.
-- **T4 (Decided):** If a ticket arrives outside working time, its clocks start at the next working moment (for example, Saturday 11:00 becomes Monday 09:30).
-- **T5 (Stated):** A ticket is **late** only when its deadline has passed in working time. A ticket that arrives Friday 18:00 must not be late on Sunday.
-
-**Tests:** Friday 18:00 ticket is not late on Sunday. Saturday arrival starts Monday 09:30. A holiday is skipped. A ticket spanning a weekend counts only working minutes.
+- **T1 (Stated):** Arvo's support team works Monday through Friday, from 09:30 to 18:30. That is 9 working hours (540 working minutes) each day.
+- **T2 (Stated):** No work happens on festival holidays. Holidays cannot be hard-coded in the source code; they must live in an editable database table (`holidays`) with sample dates seeded.
+- **T3 (Stated):** All deadlines and elapsed times are measured strictly in **working minutes**. Nights, weekends, and holidays add zero elapsed time.
+- **T4 (Decided):** If a customer submits a ticket outside working hours (like Saturday morning or late at night), the clock starts ticking at the next working moment (e.g., Saturday 11:00 starts Monday at 09:30).
+- **T5 (Stated):** A ticket is late only when its working-time deadline expires. A ticket arriving Friday at 18:00 has only used 30 minutes by Friday 18:30, so it must not be marked late on Sunday.
 
 ---
 
-## 2. Severity and deadlines (prefix S)
+## 2. Severity and Deadlines (Prefix S)
 
-- **S1 (Stated):** Three severities: **Critical** (customer cannot work at all), **Medium**, **Low** (questions and small requests).
-- **S2 (Stated values, Decided numbers):** Each ticket has two separate clocks: first response and resolution. The numbers below are defaults and must be configurable, because the story says "about".
-
-| Severity | First response within | Resolved within |
-|---|---|---|
-| Critical | 2 working hours | end of the same working day (18:30) |
-| Medium | half a working day (4.5 h) | 3 working days |
-| Low | 1 working day (9 h) | 5 working days |
-
-- **S3 (Decided):** "Same working day" for Critical means by 18:30 on the working day the clock started. A ticket arriving at 18:00 has 30 minutes left. This is strict but matches the wording.
-- **S4 (Decided):** **First response** means the first *public* reply by an agent. Internal notes never count as a response, because the customer never sees them.
-- **S5 (Stated):** The resolution clock stops when the ticket is marked Resolved.
-
-**Tests:** A Critical ticket created 10:00 has a response deadline of 12:00. A Medium ticket created Friday 16:00 gets its response deadline on Monday. An internal note does not stop the response clock.
+- **S1 (Stated):** There are three severities:
+  - **Critical:** The customer cannot work at all.
+  - **Medium:** Standard operational issues.
+  - **Low:** Inquiries, small questions, and minor requests.
+- **S2 (Stated / Decided):** Every ticket has two separate timers: First Response and Resolution. The numbers below are configurable defaults:
+  - **Critical:** First public response within 2 working hours. Resolved by end of the same working day (18:30).
+  - **Medium:** First public response within half a working day (4.5 hours / 270 mins). Resolved within 3 working days (27 working hours).
+  - **Low:** First public response within 1 working day (9 hours / 540 mins). Resolved within 5 working days (45 working hours).
+- **S3 (Decided):** "Same working day" for Critical tickets means 18:30 on the day the clock started. A ticket arriving at 18:00 has 30 minutes remaining.
+- **S4 (Decided):** The first response timer only stops when an agent posts a **public** reply. Internal notes do not count because the customer cannot see them.
+- **S5 (Stated):** The resolution timer permanently stops the moment the ticket is marked Resolved.
 
 ---
 
-## 3. Changing severity mid-way (prefix V). The unanswered question.
+## 3. Changing Severity Mid-Way (Prefix V)
 
-- **V1 (Decided):** When severity changes, the ticket keeps the working time it has already used. The new severity's targets apply to the whole ticket, measured from the original start.
-- **V2 (Decided):** If the new (stricter) target has already passed, the ticket becomes late immediately.
-- **V3 (Decided):** A downgrade never erases a breach that was already recorded.
-- **V4 (Stated by INC-0318):** Every severity change is written to the audit log with who changed it, the old value, and the new value.
-
-**Tests:** Medium ticket, 6 working hours old, changed to Critical becomes late immediately. A recorded breach survives a downgrade.
+- **V1 (Decided):** When an agent changes ticket severity, the ticket keeps the working time already spent. The new severity target applies to the whole ticket from its original start time.
+- **V2 (Decided):** If the ticket is escalated to a stricter severity whose deadline has already elapsed, the ticket breaches immediately.
+- **V3 (Decided):** Downgrading a ticket to a lower severity never erases or forgives a breach that was already recorded.
+- **V4 (Stated by INC-0318):** Every severity change is recorded in the immutable audit log with who changed it, the old severity, the new severity, and the server timestamp.
 
 ---
 
-## 4. Waiting on the customer (prefix W)
+## 4. Waiting on Customer (Prefix W)
 
-- **W1 (Stated):** When an agent sets the ticket to "Waiting on customer", **both clocks pause**. Waiting time is not the agent's fault.
-- **W2 (Stated, implied):** When the customer replies, the clocks resume and the status returns to Open.
-- **W3 (Decided):** A waiting ticket is shown as "Waiting", not "Late". A breach that was already recorded before the pause stays recorded.
-- **W4 (Stated):** If the customer is silent for 5 working days (configurable) while waiting, the system closes the ticket. The actor in the audit log is "system".
-
-**Tests:** A 3-day wait adds nothing to elapsed working time. A reply resumes the clock. A ticket waiting 5 working days is closed automatically.
+- **W1 (Stated):** When an agent moves a ticket to "Waiting on customer", **both clocks pause**. As Meera said, waiting time is the customer's delay, not the agent's fault.
+- **W2 (Stated):** When the customer replies, the clocks unpause and the ticket status automatically returns to Open.
+- **W3 (Decided):** While waiting, the ticket displays a "Waiting" badge instead of a "Late" badge. Any breach that was already recorded before the pause stays recorded.
+- **W4 (Stated):** If the customer remains silent for 5 working days (~one week), a background system job automatically closes the ticket and logs the actor as "system".
 
 ---
 
-## 5. Lifecycle and reopening (prefix L)
+## 5. Lifecycle and Reopening (Prefix L)
 
-- **L1 (Decided):** Statuses: `new`, `open`, `waiting_customer`, `resolved`, `closed`. Allowed moves are listed in code as one table, and any other move is rejected.
-- **L2 (Stated):** A customer can reopen a **Resolved** ticket for a limited window, default 5 working days after it was resolved (configurable).
-- **L3 (Stated):** After the window, a customer message creates a **new ticket linked to the old one**. The old ticket is not changed.
-- **L4 (Decided):** A reopened ticket gets a fresh resolution clock. The first-response clock is not restarted. The earlier history stays.
-- **L5 (Decided):** A ticket closed by silence cannot be reopened. A later customer message creates a new linked ticket ("they can contact us again").
-
-**Tests:** Reopen on day 4 works. Reopen on day 6 creates a new linked ticket. Closed ticket stays closed.
+- **L1 (Decided):** Allowed statuses are `new`, `open`, `waiting_customer`, `resolved`, and `closed`. Disallowed transitions are blocked by a strict state table.
+- **L2 (Stated):** A customer can reopen a Resolved ticket within a 5 working days window (~one week) after resolution.
+- **L3 (Stated):** After the 5-day window expires, a customer reply does not touch the old ticket. Instead, it creates a **new ticket linked to the old one**.
+- **L4 (Decided):** A reopened ticket gets a fresh resolution clock. The first-response clock is not restarted. All previous history stays intact.
+- **L5 (Decided):** Tickets closed by silence cannot be reopened. Any future message from that customer creates a new linked ticket.
 
 ---
 
-## 6. Ownership and claiming (prefix C). From INC-0291.
+## 6. Ownership and Claiming (Prefix C - INC-0291)
 
-- **C1 (Stated):** A ticket has at most one owner at a time.
-- **C2 (Stated):** "Take this ticket" is **atomic**: it is one database statement (`UPDATE ... WHERE owner IS NULL`). If two agents click together, exactly one wins. The other gets a clear 409 "already taken" message.
-- **C3 (Decided):** Only the current owner can send a public reply. This prevents two agents answering the same customer.
-- **C4 (Decided):** An owner can release a ticket back to the queue. Every claim and release is audited.
-
-**Tests:** Fire 10 simultaneous claims. Exactly 1 succeeds. A non-owner reply is rejected.
+- **C1 (Stated):** A ticket can only have one owner at a time.
+- **C2 (Stated):** Claiming a ticket ("Take this ticket") is an **atomic database statement** (`UPDATE tickets SET owner_agent_id = ... WHERE owner_agent_id IS NULL`). If two agents click at the same time, exactly one succeeds and the other gets an HTTP 409 Conflict error.
+- **C3 (Decided):** Only the assigned owner can send a public reply. This prevents two agents giving conflicting answers to the same customer.
+- **C4 (Decided):** An agent can release a ticket back to the unassigned queue. Claims and releases are audited.
 
 ---
 
-## 7. Private notes must never leak (prefix N). From INC-0304.
+## 7. Private Notes Must Never Leak (Prefix N - INC-0304)
 
-- **N1 (Stated):** Every message is either `public` or `internal`.
-- **N2 (Stated):** Internal notes never appear in anything a customer can reach: not on a screen, not in an API response, not in a list, not in a search, not in a count, not in an export, not in an error message.
-- **N3 (Decided):** This is enforced by design, not by remembering to filter. Customer-facing code uses a separate query and a separate response shape that **cannot** return internal notes.
-- **N4 (Decided):** The customer gets a simple read-only view through a secret link (token) that shows the public thread and status, plus a reply box. This is how the customer side is demonstrated.
-
-**Tests:** Create an internal note, then call every customer-facing endpoint and export. Assert the note text appears nowhere in any response.
+- **N1 (Stated):** Every message is either `public` (customer visible) or `internal` (team only).
+- **N2 (Stated):** Internal notes must never appear anywhere a customer can reach: not in UI, API responses, lists, search, exports, or errors.
+- **N3 (Decided):** Enforced by architectural design: customer endpoints run separate queries strictly filtering `WHERE visibility = 'public'` and return a customer DTO shape that physically cannot contain internal notes.
+- **N4 (Decided):** Customers access their ticket using a unique secret token URL (`/customer/tickets/:token`) showing the public thread and a reply box.
 
 ---
 
-## 8. Audit log (prefix A). From INC-0318.
+## 8. Append-Only Audit Log (Prefix A - INC-0318)
 
-- **A1 (Stated):** Every important event is recorded as a row: what happened, when, who did it (agent, customer, or system), and the details.
-- **A2 (Stated):** Timestamps come from the server clock, never from the browser.
-- **A3 (Stated):** The audit log is **append-only**. The database blocks UPDATE and DELETE on it (trigger or permissions). Corrections are new rows.
-- **A4 (Stated):** The first-response time of any ticket can be proven from the log alone.
-- **A5 (Decided):** When a deadline is missed, a `breach` event is written with a reason code: `unassigned` (nobody owned the ticket), or `no_action` (owned, but no reply in time).
-- **A6 (Decided):** A manager report lists late tickets with their breach reasons, which answers "which were late, and why".
-
-**Tests:** Trying to UPDATE or DELETE an audit row fails. A breach row exists with a reason code.
+- **A1 (Stated):** Every event is stored as an immutable audit row: ticket ID, event type, who did it (agent, customer, or system), payload details, and timestamp.
+- **A2 (Stated):** All timestamps come from the server clock (`NOW()`), never the client browser.
+- **A3 (Stated):** The audit log is **append-only**. A PostgreSQL database trigger blocks any `UPDATE` or `DELETE` statements on `ticket_events`.
+- **A4 (Stated):** Response times and SLA compliance can be mathematically proven from the audit log alone.
+- **A5 (Decided):** When a deadline is missed, the system records a `breach` event with a reason code: `unassigned` (nobody owned it) or `no_action` (owned, but agent was inactive).
+- **A6 (Decided):** A manager report endpoint (`/api/reports/breaches`) lists late tickets and explains why they were late.
 
 ---
 
-## 9. Agent screen (prefix U)
+## 9. Agent Screen (Prefix U)
 
-- **U1 (Stated):** One screen shows the agent's own tickets, with a clear **Late** badge and a **Waiting** badge.
-- **U2 (Decided):** Sort by closest deadline first. Show working time remaining.
-- **U3 (Stated):** Opening a ticket shows the thread, a public reply box, and an internal note box that looks clearly different (for example, a yellow background labelled "Team only").
-- **U4 (Decided):** A shared "unassigned" queue lets agents claim tickets.
+- **U1 (Stated):** A single unified screen showing the agent's assigned tickets with clear **Late** and **Waiting** badges.
+- **U2 (Decided):** Sorted by closest deadline first, displaying working time remaining.
+- **U3 (Stated):** Opening a ticket shows the thread, a public reply box, and a visually distinct yellow "Team only" private note box.
+- **U4 (Decided):** A shared Unassigned Queue allows agents to view incoming tickets and atomically claim them.
 
 ---
 
-## 10. Deliberately out of scope (write these in the final note)
+## 10. Deliberately Out of Scope
 
-- Real email or WhatsApp delivery
-- Full user management and password reset (seeded agents with a simple login)
-- Notifications and attachments
-- Anything not listed above
+- Real email and WhatsApp delivery (simulated via customer portal).
+- Complex auth and password reset (simple agent switcher among the 9 seeded agents).
+- File attachments and external push notifications.

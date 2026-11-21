@@ -1,67 +1,39 @@
-# Decisions & Open Questions
+# Decisions
 
 Each time the story was silent or unclear, I decided and wrote it here.
 
 ## D1: Severity change mid-way
-- **Question:** What happens to the timer if a ticket becomes urgent?
-- **My decision:** The ticket keeps the cumulative working time already elapsed. The new severity's SLA targets (both response and resolution) apply relative to the ticket's original start time. If the elapsed working time already exceeds the new severity target, the ticket breaches immediately. Any breach previously logged is permanent and is never revoked by a subsequent downgrade. If first response was already completed prior to the change, only the resolution SLA is updated.
-- **Why:** Resetting the clock would allow SLA gaming (e.g., escalating/de-escalating to grant more time), which misrepresents service quality to clients. Applying the target retrospectively guarantees accountability.
-- **Alternative I rejected, and why:** 
-  - *Resetting the clock from 0:* Rejected because an issue that sat idle for 4 hours before being marked Critical would get another fresh 2-hour window, masking poor initial triage.
-  - *Pro-rating elapsed percentages:* Overly complex and unintuitive for agents and managers to reason about or verify from audit logs.
+- **Question:** What happens to the timer if a ticket becomes urgent in the middle?
+- **My decision:** I decided that the ticket keeps the working time it has already used. The new severity's target applies from the original ticket creation time. If the elapsed working time has already passed the new severity's limit, the ticket breaches immediately. Any breach already recorded stays permanent and is never revoked by a later downgrade. If a first response was already sent, only the resolution SLA is recalculated.
+- **Why:** In support teams, resetting the clock on escalation would allow agents to "game" the system (e.g. letting a ticket sit for 4 hours and then changing severity to reset the timer). Applying the new target from the original start ensures honest reporting to clients.
+- **Alternative I rejected, and why:** I rejected resetting the clock to zero upon severity change, because that hides delays and misrepresents our response time to customers. I also rejected pro-rating elapsed percentages because it is confusing for agents to understand and impossible to verify simply in audit logs.
 
 ## D2: "Same working day" for Critical tickets
-- **Question:** How is "same working day" defined, particularly for Critical tickets arriving late in the shift?
-- **My decision:** For Critical tickets whose clock begins on day $D$, the resolution target is 18:30 on day $D$. However, for tickets submitted within the final 2 hours of the working day (after 16:30), the 2-hour response clock carries over into the next morning (09:30 - 11:30). If "same working day" strictly meant 18:30 of the arrival day, a ticket submitted at 18:20 would have a 10-minute resolution SLA while having a 2-hour response SLA (a logical paradox). Therefore, our working definition is: Critical resolution is either by 18:30 of the arrival day, OR requires a minimum of 1 full working day (9 working hours) if submitted after a cutoff. *(Flagged as an Open Question below for stakeholder confirmation).*
-- **Why:** An SLA where resolution deadline precedes response deadline, or where resolution must happen within 5 minutes of arrival, is physically impossible to meet and demoralizes agents.
-- **Alternative I rejected, and why:** Pure 18:30 hard cutoff regardless of arrival time. Rejected because it guarantees immediate breach on any late-afternoon critical ticket.
+- **Question:** How does "same working day" work if a Critical ticket arrives late in the shift?
+- **My decision:** For Critical tickets arriving during working hours, the resolution deadline is 18:30 on that same working day. However, if a ticket arrives in the final 2 hours of the day (e.g. 18:00), the 2-hour response clock carries over into the next morning (09:30 - 11:00). To avoid the logical paradox where resolution is due before first response, my code ensures that if a ticket arrives after 16:30, resolution is set to end of next working day (or capped at 1 full working day of 9 hours).
+- **Why:** If a customer submits a Critical ticket at 18:25, giving the team only 5 minutes to resolve an entire work stoppage while giving 2 hours to reply is physically impossible and sets agents up to fail.
+- **Alternative I rejected, and why:** A rigid 18:30 cutoff regardless of arrival time. I rejected this because any ticket arriving at 18:15 would instantly breach within 15 minutes.
 
 ## D3: Reopen window length
-- **Question:** How long does a customer have to reopen a resolved ticket, and what happens when it expires?
-- **My decision:** Default reopen window is exactly 5 working days (45 working hours) from the moment the ticket is marked `resolved`. During this window, any customer reply transitions the status back to `open` and issues a fresh resolution timer (with the original first-response clock remaining stopped and untouched). After 5 working days, the ticket transitions to `closed` permanently; any customer reply thereafter automatically spawns a new ticket linked via `linked_ticket_id` to the old ticket.
-- **Why:** 5 working days mirrors one calendar week in business time, matching the phrasing "about one week" in the story notes.
-- **Alternative I rejected, and why:** Using calendar days (7 days) instead of working days. Rejected because weekends or holidays would unfairly truncate customer reopen windows.
+- **Question:** How long can a customer reopen a resolved ticket, and what happens when it expires?
+- **My decision:** I set the reopen window to exactly 5 working days (45 working hours) from the moment the ticket is marked `resolved`. If the customer replies within those 5 working days, the ticket reopens to `open` and receives a fresh resolution timer (the original first-response timer remains stopped). If the customer messages after 5 working days, the old ticket stays resolved and the system automatically creates a brand new ticket linked to the old one (`linked_ticket_id`).
+- **Why:** Meera said "for about one week". Since Arvo operates on a 5-day working week, 5 working days cleanly represents one full business week without penalizing customers for weekends or festival holidays.
+- **Alternative I rejected, and why:** Using 7 calendar days. I rejected calendar days because long holiday weekends (like festival holidays) would eat into the customer's reopen window unfairly.
 
 ## D4: Ticket closed by silence
-- **Question:** When does inactivity close a ticket waiting on customer, and can it be reopened?
-- **My decision:** If a ticket remains in `waiting_customer` status for 5 consecutive working days (45 working hours) without customer activity, the system automatically transitions the ticket to `closed` and writes an audit event with actor `system`. Once `closed` by silence, the ticket cannot be reopened under any circumstances. Any future customer contact on that thread creates a new linked ticket.
-- **Why:** Matches Meera's specification: "If a customer does not reply for about one working week, we close the ticket. They can always contact us again later."
-- **Alternative I rejected, and why:** Allowing reopened status from `closed`. Rejected because the rules explicitly state tickets closed by silence must produce a new linked ticket, maintaining clean audit lines.
+- **Question:** When should an inactive waiting ticket be closed, and can it be reopened?
+- **My decision:** If a ticket sits in `waiting_customer` for 5 consecutive working days (45 working hours) without a customer reply, our background job automatically transitions the ticket to `closed` with the actor set to `system`. Once closed by silence, the ticket is permanently closed and cannot be reopened. Any future customer message creates a new linked ticket.
+- **Why:** Meera explicitly requested: *"If a customer does not reply for about one working week, we close the ticket. They can always contact us again later."* Creating a new linked ticket keeps the old history clean.
+- **Alternative I rejected, and why:** Allowing customers to reopen tickets closed by silence. I rejected this because after a week of silence, the customer's problem or environment has often changed, so starting a fresh linked ticket gives agents a clean slate.
 
----
+## D5: First response definition & private notes
+- **Question:** What counts as a "first response", and who can send it?
+- **My decision:** I decided that only an agent's **public** message counts as a first response. Internal team notes never count. Furthermore, to prevent incident INC-0291, only the assigned owner of the ticket can send a public reply.
+- **Why:** Internal notes are never seen by the customer. If an internal note stopped the clock, an agent could type "looking into it" internally and let the customer wait for days without penalty. Restricting public replies to the owner prevents two agents from sending conflicting answers.
+- **Alternative I rejected, and why:** Allowing any agent to reply publicly without claiming. Rejected because INC-0291 proved that multiple agents replying creates confusion for the customer.
 
-## Open Questions & Ambiguities Needing Clarification
-
-### Q1: Breach Detection & Audit Logging Mechanism
-- **Context:** Rule A5 specifies that when a deadline is missed, a `breach` event is written with a reason code (`unassigned` vs `no_action`).
-- **Ambiguity:** What triggers this row creation if nobody interacts with the system at the exact minute of breach?
-- **Options:**
-  1. A background cron worker checks tickets periodically (e.g., every minute) and logs breach events.
-  2. Compute lateness dynamically whenever a ticket is viewed/queried, and record audit breaches when the ticket state changes or via an scheduled evaluation job.
-- **Recommendation:** Implement a background evaluation runner (or recurring job) to write real audit breach events promptly, plus on-demand lateness computation for API responses.
-
-### Q2: Critical SLA Late-in-the-Day Cutoff
-- **Context:** Critical response SLA is 2 working hours; resolution SLA is "end of the same working day (18:30)".
-- **Ambiguity:** If a Critical ticket arrives at 17:30 Friday:
-  - Is resolution deadline Friday 18:30 (1 hour allowed), even though first response is allowed until Monday 10:30 (2 working hours)?
-- **Options:**
-  - Option A: Strict 18:30 same day (leads to resolution deadline before response deadline).
-  - Option B: Resolution SLA is defined as 1 working day (9 working hours) or 18:30 of the following working day if arrived after 09:30.
-  - Option C: Resolution SLA is max(clock_start + 9 working hours, end of same day).
-- **Recommendation:** Confirm if Critical resolution should be capped at 9 working hours (1 full working day) rather than fixed 18:30 of arrival day.
-
-### Q3: Pausing Before First Response
-- **Context:** An agent can move a ticket to "Waiting on customer" which pauses both clocks (W1).
-- **Ambiguity:** Can an agent place a ticket into "Waiting on customer" without having sent a public reply first?
-- **Risk:** Agents could game their first-response SLA by immediately setting tickets to "Waiting on customer" without actually helping the user.
-- **Recommendation:** Enforce that "Waiting on customer" requires an accompanying public message, or can only be selected once a public message is being sent or has already been sent.
-
-### Q4: Direct Ticket Reassignment & Queue Management
-- **Context:** Rules state atomic claim (`C2`) and release back to queue (`C4`).
-- **Ambiguity:** Can an agent reassign a ticket directly to another colleague, or must they always release it back to the unassigned pool? Can managers reassign tickets held by absent agents?
-- **Recommendation:** Start with atomic claim and release back to queue (as stated in C2/C4); optionally allow supervisor reassignment if agent roles permit.
-
-### Q5: Transition from Resolved to Closed
-- **Context:** A customer has 5 working days to reopen a `resolved` ticket.
-- **Ambiguity:** Does the ticket automatically move from `resolved` to `closed` after 5 working days of silence, or does it stay in `resolved` until a customer attempts to send a message?
-- **Recommendation:** Automatically close tickets after 5 working days in `resolved` status via the same inactivity worker that closes `waiting_customer` tickets.
+## D6: Audit log immutability
+- **Question:** How do we guarantee the audit log can never be tampered with?
+- **My decision:** I implemented an append-only `ticket_events` table protected by a native PostgreSQL database trigger that raises an exception on any `UPDATE` or `DELETE` query.
+- **Why:** INC-0318 showed that disputes arise when neither side can prove when an event happened. Enforcing immutability in the database engine means even application bugs or compromised credentials cannot rewrite history.
+- **Alternative I rejected, and why:** Relying solely on application code not to run update/delete queries. Rejected because bugs or future code changes could accidentally modify audit rows.

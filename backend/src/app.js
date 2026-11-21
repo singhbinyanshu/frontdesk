@@ -11,6 +11,18 @@ export const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Request logger: logs live API traffic to terminal
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    if (req.path.startsWith('/api')) {
+      const color = res.statusCode >= 400 ? '❌' : '✓';
+      console.log(`${color} [${new Date().toLocaleTimeString()}] ${req.method} ${req.path} -> ${res.statusCode} (${Date.now() - start}ms)`);
+    }
+  });
+  next();
+});
+
 // Rule L1: State transition table (single source of truth for allowed moves)
 export const ALLOWED_STATUS_TRANSITIONS = {
   new: ['open', 'waiting_customer', 'resolved', 'closed'],
@@ -36,6 +48,19 @@ async function getSettingNumber(key, defaultValue) {
   const val = parseFloat(result.rows[0].value);
   return isNaN(val) ? defaultValue : val;
 }
+
+// ==========================================
+// 0. List Agents (Rule 10 simple login/selector)
+// ==========================================
+app.get('/api/agents', async (req, res) => {
+  try {
+    const result = await query('SELECT id, name, email FROM agents ORDER BY id ASC');
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching agents:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // ==========================================
 // 1. Create Ticket (Rules S1 - S3, A1 - A2)
@@ -125,9 +150,12 @@ app.get('/api/tickets', async (req, res) => {
 
     if (unassigned === 'true') {
       conditions.push('owner_agent_id IS NULL');
-    } else if (owner_agent_id) {
-      params.push(owner_agent_id);
-      conditions.push(`owner_agent_id = $${params.length}`);
+    } else if (owner_agent_id && owner_agent_id !== 'null' && owner_agent_id !== 'undefined') {
+      const parsedAgentId = parseInt(owner_agent_id, 10);
+      if (!isNaN(parsedAgentId)) {
+        params.push(parsedAgentId);
+        conditions.push(`owner_agent_id = $${params.length}`);
+      }
     }
 
     if (status) {
@@ -790,4 +818,23 @@ app.post('/api/jobs/breach-detection', async (req, res) => {
     console.error('Error running breach detection job:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
+});
+
+// Serve frontend static build (for single-port deployment or visiting port 5000 directly)
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, '../../frontend/dist');
+
+app.use(express.static(distPath));
+
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api')) {
+    return res.sendFile(path.join(distPath, 'index.html'), err => {
+      if (err) next();
+    });
+  }
+  next();
 });
