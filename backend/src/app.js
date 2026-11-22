@@ -1,10 +1,16 @@
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import pool, { query } from './db/db.js';
 import { calculateDeadlines, getTicketBadge, DEFAULT_SLA_CONFIG } from './sla.js';
 import { calculateWorkingMinutes, addWorkingMinutes, isLate, nextWorkingMoment, getDateParts, createDateInTimezone } from './workingTime.js';
 import { runAutoCloseJob, runBreachDetectionJob } from './jobs.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, '../../frontend/dist');
 
 export const app = express();
 
@@ -821,13 +827,6 @@ app.post('/api/jobs/breach-detection', async (req, res) => {
 });
 
 // Serve frontend static build (for single-port deployment or visiting port 5000 directly)
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const distPath = path.resolve(__dirname, '../../frontend/dist');
-
 app.use(express.static(distPath));
 
 app.use((req, res, next) => {
