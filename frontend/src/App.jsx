@@ -31,9 +31,10 @@ export default function App() {
     fetch(`${API_BASE}/api/agents`)
       .then(res => res.json())
       .then(data => {
-        setAgents(data);
-        if (data.length > 0) {
-          setSelectedAgentId(data[0].id);
+        const list = Array.isArray(data) ? data : [];
+        setAgents(list);
+        if (list.length > 0) {
+          setSelectedAgentId(list[0].id);
         }
       })
       .catch(err => console.error('Failed to load agents:', err));
